@@ -4,7 +4,7 @@
 
 我（作者 Krasimir）一直在完善基于JavaScript的预处理器 - [AbsurdJS](http://krasimirtsonev.com/blog/article/AbsurdJS-fundamentals)。它最开始只是一个CSS预处理器，但后来被扩展为CSS / HTML预处理器。很快，它实现了从JavaScript到CSS / HTML的转换。当然，正因为它被用来生成HTML代码，所以自然就有模板引擎的功能，也就是用数据填充HTML。
 
-所以，我想写一段简单的模板引擎逻辑，它与我目前的成果很好地契合。AbsurdJS主要作为NodeJS模块分发，但也被移植到了客户端。考虑到这一点，我知道我不能从一些现有的模板引擎获得支持。这是因为它们中的大多数只支持Node环境，在浏览器中难以复用它们。我需要一轻量，且用纯粹的JavaScript编写的代码。最后我发现了[John Resig](http://ejohn.org/)的这篇[博文](http://ejohn.org/blog/javascript-micro-templating/)，它看起来正是我需要的。我做了点改动，精简到20行内。我认为这段代码是非常有趣的。在本文中，我将逐步重新创建模板引擎，以便你可以看到最初来自John Resig的绝妙idea。
+所以，我想写一段简单的模板引擎逻辑，它与我目前的成果很好地契合。AbsurdJS主要作为NodeJS模块分发，但也被移植到了客户端。考虑到这一点，我知道我不能从一些现有的模板引擎获得支持。这是因为它们中的大多数只支持Node环境，在浏览器中难以复用它们。我需要一段轻量，且用纯粹的JavaScript编写的代码。最后我发现了[John Resig](http://ejohn.org/)的这篇[博文](http://ejohn.org/blog/javascript-micro-templating/)，它看起来正是我需要的。我做了点改动，精简到20行内。我认为这段代码是非常有趣的。在本文中，我将逐步重新创建模板引擎，以便你可以看到最初来自John Resig的绝妙idea。
 
 一开始我们有这样的一段代码：
 
@@ -12,14 +12,14 @@
 var TemplateEngine = function(tpl, data) {
     // magic here ...
 }
-var template = '<p>Hello, my name is <%name%>. I\'m <%age%> years old.</p>';
+var template = "<p>Hello, my name is <%name%>. I\'m <%age%> years old.</p>";
 console.log(TemplateEngine(template, {
     name: "Krasimir",
     age: 29
 }));
 ```
 
-很简单的一个函数，接收模板template和数据对象data作为参数，很明显，我们想要得到这样一个输出：
+很简单的一个函数，接收模板```template```和数据对象```data```作为参数，很明显，我们想要得到这样一个输出：
 
 ```js
 <p>Hello, my name is Krasimir. I'm 29 years old.</p>
@@ -38,7 +38,7 @@ var re = /<%([^%>]+)?%>/g;
 var match = re.exec(tpl);
 ```
 
-console.log结果：
+```console.log```结果：
 
 ```js
 [
@@ -143,7 +143,7 @@ r.push('</a>');
 return r.join('');
 ```
 
-接下来的步骤是收集自定义生成函数的不同行。我们已经从模板中提取了一些信息。我们知道占位符的内容及其位置。所以，通过使用帮助变量（cursor），我们能够产生期望的结果。
+接下来的步骤是收集我们自定义生成的函数的不同行。我们已经从模板中提取了一些信息，知道了片段的内容及其位置。所以，通过使用辅助变量（cursor），我们就能够得到期望的结果。
 
 ```js
 var TemplateEngine = function(tpl, data) {
@@ -169,3 +169,76 @@ console.log(TemplateEngine(template, {
     profile: { age: 29 }
 }));
 ```
+
+```code```变量保存了函数体，它以数组定义开始。```cursor```变量表示当前模板字符串处理位置，我们需要它来遍历模板字符串并跳过代码片段。额外声明了一个```add```函数，作用是给```code```变量不断加入代码行。然后是比较tricky的写法，我们需要特殊处理双引号，否则生成的字符串形式的代码就有问题（注：这里为什么是```\\"```的写法，因为这里先替换```"```为```\\"```，后续的正则匹配时会将```\\```转义为```\```，这样code变量最终才会正确保留模板字符串中的```"```为```\"```）。运行这段代码，可以看到打印出：
+
+```js
+var r=[];
+r.push("<p>Hello, my name is ");
+r.push("this.name");
+r.push(". I'm ");
+r.push("this.profile.age");
+return r.join("");
+```
+
+Hm...还不是我们想要的结果。```this.name```和```this.profile.age```不应该被处理为字符串，我们还需要修改一下```add```函数：
+
+```js
+var add = function(line, js) {
+    js? code += 'r.push(' + line + ');\n' :
+        code += 'r.push("' + line.replace(/"/g, '\\"') + '");\n';
+}
+var match;
+while(match = re.exec(tpl)) {
+    add(tpl.slice(cursor, match.index));
+    add(match[1], true); // <-- 表明这是一段js代码
+    cursor = match.index + match[0].length;
+}
+```
+
+这样代码片段传参时就会带着一个布尔变量，可以解析出正确的结果了：
+
+```js
+var r=[];
+r.push("<p>Hello, my name is ");
+r.push(this.name);
+r.push(". I'm ");
+r.push(this.profile.age);
+return r.join("");
+```
+
+现在只需要用工厂模式构造一个函数并执行它就可以了，在我们的模板引擎函数的最后，不返回```tpl```了：
+
+```js
+return new Function(code.replace(/[\r\t\n]/g, '')).apply(data);
+```
+
+我们都不需要传递任何参数进去，而是使用```apply()```来调用，它会自动绑定作用域，这就是```this.name```能够正确替换数据的原因——```this```就指向```data```。
+到这里我们的模板引擎就实现得差不多了，但还有最后一件事要做。我们需要支持更多复杂的操作，比如if/else条件和循环语句。我们用目前的成果来检验一下：
+
+```js
+var template = 
+'My skills:' + 
+'<%for(var index in this.skills) {%>' + 
+'<a href="#"><%this.skills[index]%></a>' +
+'<%}%>';
+console.log(TemplateEngine(template, {
+    skills: ["js", "html", "css"]
+}));
+```
+
+得到的结果是一个Uncaught SyntaxError: Unexpected token for的错误，我们打印一下```code```变量就能看出问题出在哪儿：
+
+```js
+var r=[];
+r.push("My skills:");
+r.push(for(var index in this.skills) {);
+r.push("<a href=\"\">");
+r.push(this.skills[index]);
+r.push("</a>");
+r.push(});
+r.push("");
+return r.join("");
+```
+
+包含for循环的代码行不应该被push到数组里，而是应该在函数体内执行
